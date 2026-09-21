@@ -377,7 +377,7 @@ def download_with_progress(user_id, message_id, url, is_video, media_type):
     if platform == 'youtube':
         ydl_opts['extractor_args'] = {'youtube': {'player_client': ['android', 'web', 'ios']}}
         if is_video:
-            ydl_opts['format'] = 'best[ext=mp4]/best[height<=720]/best'
+            ydl_opts['format'] = 'best[ext=mp4]/best[ext=webm]/best'
         else:
             ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio/best'
     elif platform == 'tiktok':
@@ -461,7 +461,6 @@ def handle_messages(message):
     if text.startswith('/'):
         return
 
-    # معالجة دعم فني (المستخدم يكتب المشكلة)
     if user_states.get(user_id) == "support_problem":
         user_states[user_id] = None
         username = message.from_user.username or message.from_user.first_name or str(user_id)
@@ -536,7 +535,6 @@ def handle_messages(message):
                 add_user_message(user_id, msg.message_id)
             return
 
-    # إذا المستخدم هو المطور ويحاول الرد على تذكرة (بالـ Reply)
     if user_id == ADMIN_ID and message.reply_to_message:
         try:
             replied_text = message.reply_to_message.text or ""
@@ -725,7 +723,6 @@ def handle_admin_buttons(call):
     except Exception:
         pass
 
-    # معالجة زر الدعم (للمستخدمين)
     if data.startswith("support_start_"):
         target_user = int(data.replace("support_start_", ""))
         user_states[target_user] = "support_problem"
@@ -852,7 +849,6 @@ def webhook():
 def index():
     return "Bot is running!", 200
 
-# ✅ ضبط الـ Webhook عند بدء التطبيق (يُشغَّل بواسطة gunicorn)
 RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL', 'https://video-downloader-bot-9ww5.onrender.com')
 try:
     bot.remove_webhook()
