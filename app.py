@@ -810,8 +810,14 @@ def webhook():
 def index():
     return "Bot is running!", 200
 
-if __name__ == "__main__":
+# ✅ ضبط الـ Webhook عند بدء التطبيق (يُشغَّل بواسطة gunicorn)
+RENDER_URL = os.environ.get('RENDER_EXTERNAL_URL', 'https://video-downloader-bot-9ww5.onrender.com')
+try:
     bot.remove_webhook()
-    RENDER_URL = "https://video-downloader-bot-9ww5.onrender.com"
     bot.set_webhook(url=f"{RENDER_URL}/{BOT_TOKEN}")
+    print(f"✅ Webhook set to: {RENDER_URL}/{BOT_TOKEN}")
+except Exception as e:
+    print(f"⚠️ Webhook error: {e}")
+
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 10000)))
