@@ -24,6 +24,7 @@ users_db = set()
 user_states = {}
 temp_links = {}
 user_messages = {}
+support_tickets = {}
 
 COOKIE_FILES = {
     'youtube': 'cookies_youtube.txt',
@@ -75,15 +76,28 @@ def set_bot_commands():
         commands = [
             types.BotCommand("start", "🎬 ابدأ التحميل"),
             types.BotCommand("admin", "🔐 لوحة المطور"),
-            types.BotCommand("cookies", "🍪 إدارة الكوكيز"),
-            types.BotCommand("checkcookies", "🔍 التحقق من الكوكيز"),
-            types.BotCommand("deletecookies", "🗑️ حذف الكوكيز"),
         ]
         bot.set_my_commands(commands)
     except Exception as e:
         print(f"Error: {e}")
 
 set_bot_commands()
+
+def notify_admin_error(user_id, username, error_text, url=None):
+    try:
+        text = (
+            f"🆘 **خطأ في البوت**\n\n"
+            f"👤 المستخدم: @{username if username else 'غير معروف'}\n"
+            f"🆔 ID: `{user_id}`\n"
+        )
+        if url:
+            text += f"🔗 الرابط: {url}\n"
+        text += f"❌ الخطأ: `{error_text[:300]}`"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🆘 إبلاغ عن خطأ", callback_data=f"support_start_{user_id}"))
+        bot.send_message(ADMIN_ID, text, parse_mode='Markdown', reply_markup=markup)
+    except Exception as e:
+        print(f"Notify admin error: {e}")
 
 def get_platform_from_url(url):
     if not url:
@@ -361,11 +375,16 @@ def download_with_progress(user_id, message_id, url, is_video, media_type):
             ydl_opts['cookiefile'] = cookie_file
 
     if platform == 'youtube':
-        ydl_opts['extractor_args'] = {'youtube': {'player_client': ['android', 'web']}}
+        ydl_opts['extractor_args'] = {'youtube': {'player_client': ['android', 'web', 'ios']}}
+        if is_video:
+            ydl_opts['format'] = 'best[ext=mp4]/best[height<=720]/best'
+        else:
+            ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio/best'
     elif platform == 'tiktok':
         ydl_opts['extractor_args'] = {'tiktok': {'api_hostname': ['api22-normal-c-useast2a.tiktokv.com']}}
-
-    ydl_opts['format'] = 'best[ext=mp4]/best' if is_video else 'bestaudio/best'
+        ydl_opts['format'] = 'best[ext=mp4]/best' if is_video else 'bestaudio/best'
+    else:
+        ydl_opts['format'] = 'best[ext=mp4]/best' if is_video else 'bestaudio/best'
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -416,56 +435,10 @@ def admin_panel(message):
         types.InlineKeyboardButton("📢 الإذاعة", callback_data="admin_broadcast"),
         types.InlineKeyboardButton("🍪 إدارة الكوكيز", callback_data="admin_cookies"),
         types.InlineKeyboardButton("🗑️ حذف الكوكيز", callback_data="admin_delete"),
-        types.InlineKeyboardButton("ℹ️ معلومات", callback_data="admin_info"),
-        types.InlineKeyboardButton("🔄 إعادة تشغيل", callback_data="admin_restart")
+        types.InlineKeyboardButton("🔄 إعادة تشغيل", callback_data="admin_restart"),
+        types.InlineKeyboardButton("🆘 الدعم الفني", callback_data="admin_support")
     )
     msg = bot.send_message(ADMIN_ID, "🔐 **لوحة تحكم المطور**", reply_markup=markup)
-    add_user_message(ADMIN_ID, msg.message_id)
-
-@bot.message_handler(commands=['cookies'])
-def manage_cookies(message):
-    if message.chat.id != ADMIN_ID:
-        bot.reply_to(message, "❌ هذا الأمر للمطور فقط")
-        return
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("▶️ يوتيوب", callback_data="cookies_youtube"),
-        types.InlineKeyboardButton("📸 انستغرام", callback_data="cookies_instagram"),
-        types.InlineKeyboardButton("📘 فيسبوك", callback_data="cookies_facebook"),
-        types.InlineKeyboardButton("🎵 تيك توك", callback_data="cookies_tiktok"),
-        types.InlineKeyboardButton("🔍 عرض الكل", callback_data="cookies_check_all")
-    )
-    msg = bot.send_message(ADMIN_ID, "🍪 **إدارة الكوكيز:**", reply_markup=markup)
-    add_user_message(ADMIN_ID, msg.message_id)
-
-@bot.message_handler(commands=['deletecookies'])
-def delete_cookies_menu(message):
-    if message.chat.id != ADMIN_ID:
-        bot.reply_to(message, "❌ هذا الأمر للمطور فقط")
-        return
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("🗑️ يوتيوب", callback_data="delete_youtube"),
-        types.InlineKeyboardButton("🗑️ انستغرام", callback_data="delete_instagram"),
-        types.InlineKeyboardButton("🗑️ فيسبوك", callback_data="delete_facebook"),
-        types.InlineKeyboardButton("🗑️ تيك توك", callback_data="delete_tiktok"),
-        types.InlineKeyboardButton("🗑️🗑️ حذف الكل", callback_data="delete_all")
-    )
-    msg = bot.send_message(ADMIN_ID, "🗑️ **اختر المنصة:**", reply_markup=markup)
-    add_user_message(ADMIN_ID, msg.message_id)
-
-@bot.message_handler(commands=['checkcookies'])
-def check_all_cookies(message):
-    if message.chat.id != ADMIN_ID:
-        bot.reply_to(message, "❌ هذا الأمر للمطور فقط")
-        return
-    status_text = "🍪 **حالة الكوكيز:**\n\n"
-    for platform, filename in COOKIE_FILES.items():
-        if os.path.exists(filename) and os.path.getsize(filename) > 0:
-            status_text += f"✅ {platform.capitalize()}: {format_size(os.path.getsize(filename))}\n"
-        else:
-            status_text += f"❌ {platform.capitalize()}: غير موجودة\n"
-    msg = bot.send_message(ADMIN_ID, status_text)
     add_user_message(ADMIN_ID, msg.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("platform_"))
@@ -487,6 +460,26 @@ def handle_messages(message):
     text = message.text
     if text.startswith('/'):
         return
+
+    # معالجة دعم فني (المستخدم يكتب المشكلة)
+    if user_states.get(user_id) == "support_problem":
+        user_states[user_id] = None
+        username = message.from_user.username or message.from_user.first_name or str(user_id)
+        support_tickets[user_id] = {"problem": text, "username": username, "status": "open"}
+        try:
+            bot.send_message(
+                ADMIN_ID,
+                f"🆘 **تذكرة جديدة**\n\n"
+                f"👤 المستخدم: @{username}\n"
+                f"🆔 ID: `{user_id}`\n"
+                f"📌 المشكلة: {text}"
+            )
+        except Exception as e:
+            print(f"Support forward error: {e}")
+        msg = bot.send_message(user_id, "✅ تم إرسال مشكلتك للمطور. سيتم الرد عليك قريباً.")
+        add_user_message(user_id, msg.message_id)
+        return
+
     if user_states.get(user_id) == "waiting_for_broadcast":
         if user_id != ADMIN_ID:
             user_states[user_id] = None
@@ -503,6 +496,7 @@ def handle_messages(message):
         msg = bot.send_message(ADMIN_ID, f"✅ تم الإرسال إلى {count} مستخدم")
         add_user_message(ADMIN_ID, msg.message_id)
         return
+
     for platform in ['youtube', 'instagram', 'facebook', 'tiktok']:
         if user_states.get(user_id) == f"waiting_cookies_{platform}":
             if user_id != ADMIN_ID:
@@ -516,6 +510,7 @@ def handle_messages(message):
                 msg = bot.send_message(user_id, "❌ خطأ في الحفظ")
                 add_user_message(user_id, msg.message_id)
             return
+
     for platform in ['youtube', 'instagram', 'facebook', 'tiktok']:
         if user_states.get(user_id) == f"waiting_link_{platform}":
             user_states[user_id] = None
@@ -540,6 +535,30 @@ def handle_messages(message):
                 msg = bot.send_message(user_id, "⚠️ أرسل رابطاً صحيحاً")
                 add_user_message(user_id, msg.message_id)
             return
+
+    # إذا المستخدم هو المطور ويحاول الرد على تذكرة (بالـ Reply)
+    if user_id == ADMIN_ID and message.reply_to_message:
+        try:
+            replied_text = message.reply_to_message.text or ""
+            if "🆘 تذكرة جديدة" in replied_text:
+                match = re.search(r"🆔 ID: `(\d+)`", replied_text)
+                if match:
+                    target_id = int(match.group(1))
+                    try:
+                        bot.send_message(target_id, f"💬 **رد المطور:**\n\n{text}")
+                        markup = types.InlineKeyboardMarkup(row_width=2)
+                        markup.add(
+                            types.InlineKeyboardButton("✅ تم الحل", callback_data="support_solved"),
+                            types.InlineKeyboardButton("🔄 متابعة", callback_data="support_continue")
+                        )
+                        bot.send_message(target_id, "هل تم حل مشكلتك؟", reply_markup=markup)
+                        bot.send_message(ADMIN_ID, f"✅ تم إرسال ردك للمستخدم {target_id}")
+                    except Exception as e:
+                        bot.send_message(ADMIN_ID, f"❌ فشل إرسال الرد: {e}")
+                return
+        except Exception as e:
+            print(f"Reply handler error: {e}")
+
     url_match = re.search(r'https?://[^\s]+', text)
     if url_match:
         url = url_match.group()
@@ -604,8 +623,9 @@ def handle_download(call):
             add_user_message(user_id, msg.message_id)
     except Exception as e:
         error_msg = str(e)
+        username = call.from_user.username or call.from_user.first_name or str(user_id)
         if "cookies" in error_msg.lower() or "authentication" in error_msg.lower() or "unreachable" in error_msg.lower():
-            error_msg = f"❌ **هذا المحتوى يتطلب مصادقة**\n\n💡 استخدم /cookies لإضافتها"
+            error_msg = "❌ هذا المحتوى يتطلب مصادقة. تم إبلاغ المطور."
         elif "not found" in error_msg.lower():
             error_msg = "❌ الرابط غير صحيح"
         else:
@@ -615,6 +635,10 @@ def handle_download(call):
         except Exception:
             msg = bot.send_message(user_id, error_msg)
             add_user_message(user_id, msg.message_id)
+        notify_admin_error(user_id, username, str(e), url)
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🆘 إبلاغ عن خطأ", callback_data=f"support_start_{user_id}"))
+        bot.send_message(user_id, "🆘 هل تواجه مشكلة؟ اضغط الزر للإبلاغ.", reply_markup=markup)
     finally:
         try:
             if filename and os.path.exists(filename):
@@ -692,7 +716,7 @@ def handle_broadcast_media(message):
     user_states[user_id] = None
     bot.send_message(ADMIN_ID, f"✅ تم الإرسال إلى {count} مستخدم")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_") or call.data.startswith("cookies_") or call.data.startswith("delete_") or call.data.startswith("replace_") or call.data.startswith("keep_"))
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_") or call.data.startswith("cookies_") or call.data.startswith("delete_") or call.data.startswith("replace_") or call.data.startswith("support_"))
 def handle_admin_buttons(call):
     user_id = call.message.chat.id
     data = call.data
@@ -700,8 +724,26 @@ def handle_admin_buttons(call):
         bot.answer_callback_query(call.id)
     except Exception:
         pass
+
+    # معالجة زر الدعم (للمستخدمين)
+    if data.startswith("support_start_"):
+        target_user = int(data.replace("support_start_", ""))
+        user_states[target_user] = "support_problem"
+        bot.send_message(target_user, "📝 اكتب مشكلتك بالتفصيل، وسيتم إرسالها للمطور.")
+        return
+
+    if data == "support_solved":
+        bot.send_message(user_id, "✅ شكراً لك! تم إغلاق التذكرة.")
+        return
+
+    if data == "support_continue":
+        bot.send_message(user_id, "📝 اكتب رسالتك الإضافية، وسيتم إرسالها للمطور.")
+        user_states[user_id] = "support_problem"
+        return
+
     if user_id != ADMIN_ID:
         return
+
     if data.startswith("delete_"):
         if data == "delete_all":
             count = delete_all_cookies()
@@ -777,9 +819,6 @@ def handle_admin_buttons(call):
         )
         msg = bot.send_message(ADMIN_ID, "🗑️ **اختر المنصة:**", reply_markup=markup)
         add_user_message(ADMIN_ID, msg.message_id)
-    elif data == "admin_info":
-        msg = bot.send_message(ADMIN_ID, "🧑‍💻 بوت تحميل الفيديو\n🛠️ المطور: أحمد")
-        add_user_message(ADMIN_ID, msg.message_id)
     elif data == "admin_restart":
         msg = bot.send_message(ADMIN_ID, "🔄 جاري إعادة التشغيل...")
         add_user_message(ADMIN_ID, msg.message_id)
@@ -788,6 +827,9 @@ def handle_admin_buttons(call):
             os.execv(sys.executable, ['python'] + sys.argv)
         except Exception:
             os._exit(0)
+    elif data == "admin_support":
+        msg = bot.send_message(ADMIN_ID, "🆘 **الدعم الفني**\n\nسيتم عرض التذاكر هنا عند وصولها. للرد على مستخدم، قم بالرد (Reply) على رسالة التذكرة.")
+        add_user_message(ADMIN_ID, msg.message_id)
 
 def cleanup_temp_links():
     while True:
